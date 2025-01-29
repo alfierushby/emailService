@@ -59,11 +59,6 @@ def poll_sqs_ses_loop():
 
 
 
-@app.route('/')
-def hello_world():  # put application's code here
-    return 'Hello World!'
-
-
 if __name__ == '__main__':
     sqs_client = boto3.client('sqs', region_name=AWS_REGION, aws_access_key_id=ACCESS_KEY
                               ,aws_secret_access_key=ACCESS_SECRET)
