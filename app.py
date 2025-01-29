@@ -1,9 +1,11 @@
+import json
 import os
 import threading
 
 from flask import Flask, jsonify
 import boto3
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field
 
 load_dotenv()
 
@@ -17,6 +19,12 @@ SES_SENDER_EMAIL = os.getenv("SES_SENDER_EMAIL")
 SES_RECIPIENT_EMAIL = os.getenv("SES_RECIPIENT_EMAIL")
 
 app = Flask(__name__)
+
+# Want the minimum length to be at least 1, otherwise "" can be sent which breaks certain APIs.
+class Request(BaseModel):
+    title: str = Field(..., min_length=1)
+    description: str = Field(..., min_length=1)
+    priority: str = Field(..., min_length=1)
 
 
 def poll_sqs_ses_loop():
@@ -36,18 +44,19 @@ def poll_sqs_ses_loop():
 
             for message in messages:
                 receipt_handle = message['ReceiptHandle']
-                print(f"Message Body: {message['Body']}")
-                message = eval(message['Body'])
+                body = json.loads(message['Body'])
 
-                print(f"Message Body: {message}")
+                handled_body = Request(**body).model_dump()
 
-                email_body = (f"Priority: {message['priority']}\nTitle: {message['title']}"
-                              f"\nDescription: {message['description']}")
+                print(f"Message Body: {handled_body}")
+
+                email_body = (f"Priority: {handled_body['priority']}\nTitle: {handled_body['title']}"
+                              f"\nDescription: {handled_body['description']}")
 
                 ses_client.send_email(Source=SES_SENDER_EMAIL
                                       , Destination={"ToAddresses": [SES_RECIPIENT_EMAIL]}
                                       , Message={
-                        "Subject": {"Data": f"P3 Notification: {message['title']}"},
+                        "Subject": {"Data": f"P3 Notification: {handled_body['title']}"},
                         "Body": {"Text": {"Data": email_body}}
                     })
                 print("Sent email")
