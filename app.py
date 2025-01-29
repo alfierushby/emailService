@@ -5,6 +5,7 @@ import threading
 from flask import Flask, jsonify
 import boto3
 from dotenv import load_dotenv
+from prometheus_flask_exporter import PrometheusMetrics, Counter
 from pydantic import BaseModel, Field
 
 load_dotenv()
@@ -26,6 +27,14 @@ class Request(BaseModel):
     description: str = Field(..., min_length=1)
     priority: str = Field(..., min_length=1)
 
+# Initialize Prometheus Metrics once
+metrics = PrometheusMetrics(app)
+
+request_counter = Counter(
+    "priority_requests_total",
+    "Total priority requests processed",
+    labelnames=["priority"]
+)
 
 def poll_sqs_ses_loop():
     """
@@ -60,6 +69,8 @@ def poll_sqs_ses_loop():
                         "Body": {"Text": {"Data": email_body}}
                     })
                 print("Sent email")
+                request_counter.labels(priority="High").inc()
+
                 sqs_client.delete_message(QueueUrl=P3_QUEUE_URL, ReceiptHandle=receipt_handle)
 
         except Exception as e:
