@@ -19,7 +19,6 @@ ACCESS_SECRET = os.getenv('AWS_SECRET_ACCESS_KEY')
 SES_SENDER_EMAIL = os.getenv("SES_SENDER_EMAIL")
 SES_RECIPIENT_EMAIL = os.getenv("SES_RECIPIENT_EMAIL")
 
-app = Flask(__name__)
 
 # Want the minimum length to be at least 1, otherwise "" can be sent which breaks certain APIs.
 class Request(BaseModel):
@@ -27,8 +26,6 @@ class Request(BaseModel):
     description: str = Field(..., min_length=1)
     priority: str = Field(..., min_length=1)
 
-# Initialize Prometheus Metrics once
-metrics = PrometheusMetrics(app)
 
 request_counter = Counter(
     "priority_requests_total",
@@ -36,7 +33,8 @@ request_counter = Counter(
     labelnames=["priority"]
 )
 
-def poll_sqs_ses_loop():
+
+def poll_sqs_ses_loop(sqs_client,ses_client):
     """
     Constantly checks SQS queue for messages and processes them to send to SES if possible
     """
@@ -48,6 +46,7 @@ def poll_sqs_ses_loop():
             messages = response.get("Messages", [])
 
             if not messages:
+                # Use logging instead!!
                 print("No messages available")
                 continue
 
@@ -74,19 +73,30 @@ def poll_sqs_ses_loop():
                 sqs_client.delete_message(QueueUrl=P3_QUEUE_URL, ReceiptHandle=receipt_handle)
 
         except Exception as e:
+            # Use logging instead!!
             print(f"Error, cannot poll: {e}")
 
-@app.route('/health',methods=["GET"])
-def health_check():
-    """ Checks health, endpoint """
-    return jsonify({"status":"healthy"}),200
 
-if __name__ == '__main__':
+def create_app():
+    app = Flask(__name__)
+    # Initialize Prometheus Metrics once
+    metrics = PrometheusMetrics(app)
+
     sqs_client = boto3.client('sqs', region_name=AWS_REGION, aws_access_key_id=ACCESS_KEY
                               , aws_secret_access_key=ACCESS_SECRET)
     ses_client = boto3.client('ses', region_name=AWS_REGION, aws_access_key_id=ACCESS_KEY
                               , aws_secret_access_key=ACCESS_SECRET)
 
-    sqs_thread = threading.Thread(target=poll_sqs_ses_loop, daemon=True)
+    sqs_thread = threading.Thread(target=poll_sqs_ses_loop,args=(sqs_client,ses_client), daemon=True)
     sqs_thread.start()
-    app.run()
+
+    @app.route('/health', methods=["GET"])
+    def health_check():
+        """ Checks health, endpoint """
+        return jsonify({"status": "healthy"}), 200
+
+    return app
+
+
+if __name__ == '__main__':
+    create_app().run()
