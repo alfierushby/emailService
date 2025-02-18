@@ -1,6 +1,7 @@
 import json
 import os
 import threading
+import logging
 
 from flask import Flask, jsonify
 import boto3
@@ -8,6 +9,7 @@ from dotenv import load_dotenv
 from prometheus_flask_exporter import PrometheusMetrics, Counter
 from pydantic import BaseModel, Field
 
+stop_event = threading.Event()
 load_dotenv()
 
 AWS_REGION = os.getenv('AWS_REGION')
@@ -19,6 +21,7 @@ ACCESS_SECRET = os.getenv('AWS_SECRET_ACCESS_KEY')
 SES_SENDER_EMAIL = os.getenv("SES_SENDER_EMAIL")
 SES_RECIPIENT_EMAIL = os.getenv("SES_RECIPIENT_EMAIL")
 
+gunicorn_logger = logging.getLogger("gunicorn.error")
 
 # Want the minimum length to be at least 1, otherwise "" can be sent which breaks certain APIs.
 class Request(BaseModel):
@@ -38,16 +41,16 @@ def poll_sqs_ses_loop(sqs_client,ses_client):
     """
     Constantly checks SQS queue for messages and processes them to send to SES if possible
     """
-    while True:
+    while not stop_event.is_set():
         try:
             response = sqs_client.receive_message(
-                QueueUrl=P3_QUEUE_URL, WaitTimeSeconds=20)
+                QueueUrl=P3_QUEUE_URL, WaitTimeSeconds=2)
 
             messages = response.get("Messages", [])
 
             if not messages:
                 # Use logging instead!!
-                print("No messages available")
+                gunicorn_logger.info("No messages available")
                 continue
 
             for message in messages:
@@ -56,7 +59,7 @@ def poll_sqs_ses_loop(sqs_client,ses_client):
 
                 handled_body = Request(**body).model_dump()
 
-                print(f"Message Body: {handled_body}")
+                gunicorn_logger.info(f"Message Body: {handled_body}")
 
                 email_body = (f"Priority: {handled_body['priority']}\nTitle: {handled_body['title']}"
                               f"\nDescription: {handled_body['description']}")
@@ -67,14 +70,14 @@ def poll_sqs_ses_loop(sqs_client,ses_client):
                         "Subject": {"Data": f"P3 Notification: {handled_body['title']}"},
                         "Body": {"Text": {"Data": email_body}}
                     })
-                print("Sent email")
+                gunicorn_logger.info("Sent email")
                 request_counter.labels(priority="High").inc()
 
                 sqs_client.delete_message(QueueUrl=P3_QUEUE_URL, ReceiptHandle=receipt_handle)
 
         except Exception as e:
             # Use logging instead!!
-            print(f"Error, cannot poll: {e}")
+            gunicorn_logger.info(f"Error, cannot poll: {e}")
 
 
 def create_app():
@@ -97,6 +100,5 @@ def create_app():
 
     return app
 
-
 if __name__ == '__main__':
-    create_app().run()
+    app = create_app().run()
