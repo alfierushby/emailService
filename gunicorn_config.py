@@ -17,4 +17,4 @@ def worker_exit(server, worker):
         if thread is threading.current_thread():
             continue
         thread.join()
-   
+    server.log.info(f"Background Threads have shutdown. Shutting Main Thread down.")
