@@ -1,0 +1,31 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+
+  build-docker:
+    uses: alfierushby/github_actions/.github/workflows/docker_build.yml@main
+
+  trivy_scan:
+    needs: 
+      - build-docker
+    uses: alfierushby/github_actions/.github/workflows/trivy_scan.yml@main
+
+  push-to-ecr:
+    needs: 
+      - trivy_scan
+    uses: alfierushby/github_actions/.github/workflows/ecr_push.yml@main
+    with:
+      account_id: "913524907347"
+      role_name: "ECR"
+      ecr_repo: "issue_creator/queue3"
+      ecr_alias: "i8t8f9f7"
