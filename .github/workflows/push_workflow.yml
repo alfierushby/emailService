@@ -12,17 +12,21 @@ permissions:
 
 jobs:
 
+  pytests:
+    uses: alfierushby/github_actions/.github/workflows/pytests.yml@main
+
   build-docker:
     uses: alfierushby/github_actions/.github/workflows/docker_build.yml@main
 
   trivy_scan:
-    needs: 
+    needs:
       - build-docker
     uses: alfierushby/github_actions/.github/workflows/trivy_scan.yml@main
 
   push-to-ecr:
-    needs: 
+    needs:
       - trivy_scan
+      - pytests
     uses: alfierushby/github_actions/.github/workflows/ecr_push.yml@main
     secrets:
       account_id: ${{ secrets.ACCOUNT_ID }}

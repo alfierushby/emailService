@@ -9,17 +9,10 @@ from dotenv import load_dotenv
 from prometheus_flask_exporter import PrometheusMetrics, Counter
 from pydantic import BaseModel, Field
 
+from config import BaseConfig
+
 stop_event = threading.Event()
 load_dotenv()
-
-AWS_REGION = os.getenv('AWS_REGION')
-P3_QUEUE_URL = os.getenv('P3_QUEUE_URL')
-TEAMS_WEBHOOK_URL = os.getenv('TEAMS_WEBHOOK_URL')
-ACCESS_KEY = os.getenv('AWS_ACCESS_KEY_ID')
-ACCESS_SECRET = os.getenv('AWS_SECRET_ACCESS_KEY')
-
-SES_SENDER_EMAIL = os.getenv("SES_SENDER_EMAIL")
-SES_RECIPIENT_EMAIL = os.getenv("SES_RECIPIENT_EMAIL")
 
 gunicorn_logger = logging.getLogger("gunicorn.error")
 
@@ -37,20 +30,20 @@ request_counter = Counter(
 )
 
 
-def poll_sqs_ses_loop(sqs_client,ses_client):
+def poll_sqs_ses_loop(sqs_client,ses_client,config):
     """
     Constantly checks SQS queue for messages and processes them to send to SES if possible
     """
     while not stop_event.is_set():
         try:
             response = sqs_client.receive_message(
-                QueueUrl=P3_QUEUE_URL, WaitTimeSeconds=20)
+                QueueUrl=config.PRIORITY_QUEUE, WaitTimeSeconds=20)
 
             messages = response.get("Messages", [])
 
             if not messages:
                 # Use logging instead!!
-                gunicorn_logger.info("No messages available")
+                print("No messages available")
                 continue
 
             for message in messages:
@@ -64,8 +57,8 @@ def poll_sqs_ses_loop(sqs_client,ses_client):
                 email_body = (f"Priority: {handled_body['priority']}\nTitle: {handled_body['title']}"
                               f"\nDescription: {handled_body['description']}")
 
-                ses_client.send_email(Source=SES_SENDER_EMAIL
-                                      , Destination={"ToAddresses": [SES_RECIPIENT_EMAIL]}
+                ses_client.send_email(Source=config.SES_SENDER_EMAIL
+                                      , Destination={"ToAddresses": [config.SES_RECIPIENT_EMAIL]}
                                       , Message={
                         "Subject": {"Data": f"P3 Notification: {handled_body['title']}"},
                         "Body": {"Text": {"Data": email_body}}
@@ -73,25 +66,34 @@ def poll_sqs_ses_loop(sqs_client,ses_client):
                 gunicorn_logger.info("Sent email")
                 request_counter.labels(priority="High").inc()
 
-                sqs_client.delete_message(QueueUrl=P3_QUEUE_URL, ReceiptHandle=receipt_handle)
+                sqs_client.delete_message(QueueUrl=config.PRIORITY_QUEUE, ReceiptHandle=receipt_handle)
 
         except Exception as e:
             # Use logging instead!!
             gunicorn_logger.info(f"Error, cannot poll: {e}")
 
 
-def create_app():
+def create_app(sqs_client=None,ses_client=None,config=None):
     app = Flask(__name__)
     # Initialize Prometheus Metrics once
     metrics = PrometheusMetrics(app)
 
-    sqs_client = boto3.client('sqs', region_name=AWS_REGION, aws_access_key_id=ACCESS_KEY
-                              , aws_secret_access_key=ACCESS_SECRET)
-    ses_client = boto3.client('ses', region_name=AWS_REGION, aws_access_key_id=ACCESS_KEY
-                              , aws_secret_access_key=ACCESS_SECRET)
+    if config is None:
+        config = BaseConfig()
 
-    sqs_thread = threading.Thread(target=poll_sqs_ses_loop,args=(sqs_client,ses_client), daemon=True)
+    if sqs_client is None:
+        sqs_client = boto3.client('sqs', region_name=config.AWS_REGION, aws_access_key_id=config.AWS_ACCESS_KEY_ID,
+                                  aws_secret_access_key=config.AWS_SECRET_ACCESS_KEY)
+    if ses_client is None:
+        ses_client = boto3.client('ses', region_name=config.AWS_REGION, aws_access_key_id=config.AWS_ACCESS_KEY_ID
+                              , aws_secret_access_key=config.AWS_SECRET_ACCESS_KEY)
+
+    sqs_thread = threading.Thread(target=poll_sqs_ses_loop,args=(sqs_client,ses_client,config), daemon=True)
     sqs_thread.start()
+
+    # Store configuration in app config for other entities
+    app.config.from_object(config)
+
 
     @app.route('/health', methods=["GET"])
     def health_check():
