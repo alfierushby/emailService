@@ -7,7 +7,7 @@ import boto3
 from moto import mock_aws
 
 
-def test_medium_priority_post(client):
+def test_high_priority_post(client):
     """Test a post with an empty string description
      :param client: The client to interact with the app
      """
@@ -20,7 +20,7 @@ def test_medium_priority_post(client):
     external_data = {
         "title": "Urgent Issue",
         "description": "Fix ASAP",
-        "priority": "Medium"
+        "priority": "High"
     }
     queue_url = client.application.config.get("PRIORITY_QUEUE")
     sqs.send_message(QueueUrl=queue_url, MessageBody=json.dumps(external_data))
