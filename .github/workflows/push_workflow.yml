@@ -24,8 +24,8 @@ jobs:
     needs: 
       - trivy_scan
     uses: alfierushby/github_actions/.github/workflows/ecr_push.yml@main
-    with:
-      account_id: "913524907347"
-      role_name: "ECR"
-      ecr_repo: "issue_creator/queue3"
-      ecr_alias: "i8t8f9f7"
+    secrets:
+      account_id: ${{ secrets.ACCOUNT_ID }}
+      role_name: ${{ secrets.ROLE_NAME }}
+      ecr_repo: ${{ secrets.ECR_REPO }}
+      ecr_alias: ${{ secrets.ECR_ALIAS }}
