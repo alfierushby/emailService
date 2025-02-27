@@ -8,12 +8,9 @@ from moto import mock_aws
 
 
 def test_high_priority_post(client):
-    """Test a post with an empty string description
+    """Test a post to see if it is consumed
      :param client: The client to interact with the app
      """
-    # Simulate form submission
-    # Get the correct queue URL from Flask's test config
-
     # Ensure we use the same region as in mock_env
     sqs = boto3.client("sqs", region_name=os.getenv("AWS_REGION"))
 

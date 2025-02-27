@@ -19,12 +19,10 @@ def app():
         #  Create mock queue
         queue = sqs.create_queue(QueueName="test")["QueueUrl"]
 
-        # Override the send message to be true
-
         # Override priority queues with test values
         config = TestConfig(queue_url=queue)
 
-        app = create_app(config=config,ses_client=ses)
+        app = create_app(config=config,ses_client=ses,sqs_client=sqs)
 
         yield app
 
