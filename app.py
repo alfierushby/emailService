@@ -43,7 +43,7 @@ def poll_sqs_ses_loop(sqs_client,ses_client,config):
 
             if not messages:
                 # Use logging instead!!
-                print("No messages available")
+                gunicorn_logger.info("No messages available")
                 continue
 
             for message in messages:
