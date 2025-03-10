@@ -82,18 +82,15 @@ def create_app(sqs_client=None,ses_client=None,config=None):
         config = BaseConfig()
 
     if sqs_client is None:
-        sqs_client = boto3.client('sqs', region_name=config.AWS_REGION, aws_access_key_id=config.AWS_ACCESS_KEY_ID,
-                                  aws_secret_access_key=config.AWS_SECRET_ACCESS_KEY)
+        sqs_client = boto3.client('sqs', region_name=config.AWS_REGION)
     if ses_client is None:
-        ses_client = boto3.client('ses', region_name=config.AWS_REGION, aws_access_key_id=config.AWS_ACCESS_KEY_ID
-                              , aws_secret_access_key=config.AWS_SECRET_ACCESS_KEY)
+        ses_client = boto3.client('ses', region_name=config.AWS_REGION)
 
     sqs_thread = threading.Thread(target=poll_sqs_ses_loop,args=(sqs_client,ses_client,config), daemon=True)
     sqs_thread.start()
 
     # Store configuration in app config for other entities
     app.config.from_object(config)
-
 
     @app.route('/health', methods=["GET"])
     def health_check():
