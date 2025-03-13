@@ -16,6 +16,9 @@ load_dotenv()
 
 gunicorn_logger = logging.getLogger("gunicorn.error")
 
+model_id = "amazon.titan-text-express-v1"
+
+
 # Want the minimum length to be at least 1, otherwise "" can be sent which breaks certain APIs.
 class Request(BaseModel):
     title: str = Field(..., min_length=1)
@@ -30,7 +33,7 @@ request_counter = Counter(
 )
 
 
-def poll_sqs_ses_loop(sqs_client,ses_client,config):
+def poll_sqs_ses_loop(sqs_client, ses_client, bedrock_client, config):
     """
     Constantly checks SQS queue for messages and processes them to send to SES if possible
     """
@@ -51,6 +54,23 @@ def poll_sqs_ses_loop(sqs_client,ses_client,config):
                 body = json.loads(message['Body'])
 
                 handled_body = Request(**body).model_dump()
+
+                # Make AI call
+                prompt = "Please makes suggestions on how to fix the issue below: \n\n" + handled_body['description']
+                native_request = {
+                    "inputText": prompt,
+                    "textGenerationConfig": {
+                        "maxTokenCount": 512,
+                        "temperature": 0.5,
+                    },
+                }
+                ai_request = json.dumps(native_request)
+
+                response = bedrock_client.invoke_model(modelId=model_id, body=ai_request)
+                model_response = json.loads(response["body"].read())
+
+                handled_body['description'] = (handled_body['description'] + "\n\n Suggested Fix: \n\n "
+                                               + model_response["results"][0]["outputText"])
 
                 gunicorn_logger.info(f"Message Body: {handled_body}")
 
@@ -73,7 +93,7 @@ def poll_sqs_ses_loop(sqs_client,ses_client,config):
             gunicorn_logger.info(f"Error, cannot poll: {e}")
 
 
-def create_app(sqs_client=None,ses_client=None,config=None):
+def create_app(sqs_client=None, ses_client=None, config=None, bedrock_client=None):
     app = Flask(__name__)
     # Initialize Prometheus Metrics once
     metrics = PrometheusMetrics(app)
@@ -85,8 +105,11 @@ def create_app(sqs_client=None,ses_client=None,config=None):
         sqs_client = boto3.client('sqs', region_name=config.AWS_REGION)
     if ses_client is None:
         ses_client = boto3.client('ses', region_name=config.AWS_REGION)
+    if bedrock_client is None:
+        bedrock_client = boto3.client('bedrock-runtime', region_name="us-east-1")
 
-    sqs_thread = threading.Thread(target=poll_sqs_ses_loop,args=(sqs_client,ses_client,config), daemon=True)
+    sqs_thread = threading.Thread(target=poll_sqs_ses_loop, args=(sqs_client, ses_client, bedrock_client, config),
+                                  daemon=True)
     sqs_thread.start()
 
     # Store configuration in app config for other entities
@@ -98,6 +121,7 @@ def create_app(sqs_client=None,ses_client=None,config=None):
         return jsonify({"status": "healthy"}), 200
 
     return app
+
 
 if __name__ == '__main__':
     app = create_app().run()
